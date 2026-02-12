@@ -6,7 +6,7 @@ from datetime import date, datetime
 # --- 設定 ---
 DATA_FILE = 's25u_rental_db.csv'
 
-# 🔥 老闆指定的最新手機庫存清單
+# 🔥 最新手機庫存清單
 PHONE_INVENTORY = [
     "S25U 白色",
     "S25U 綠色",
@@ -20,7 +20,7 @@ st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_ic
 
 # --- 標題區 ---
 st.title("📱 演唱會手機租賃管理系統")
-st.caption("老闆專用後台 | 庫存監控 | 營收統計")
+st.caption("老闆專用後台 | 庫存監控 | 營收統計 | 刪除功能")
 
 # --- 1. 左側邊欄：新增/登記訂單 ---
 with st.sidebar:
@@ -55,14 +55,13 @@ with st.sidebar:
 
 # --- 2. 邏輯處理：儲存資料 ---
 if submit:
-    # 處理日期格式
     start_date = date_range[0]
     end_date = date_range[1] if len(date_range) > 1 else start_date
     
     new_data = {
         "建檔時間": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "狀態": status,
-        "手機編號": selected_phone, # 💡【修復關鍵】：改回使用 '手機編號' 這個舊名稱，但內容存的是新手機
+        "手機編號": selected_phone, 
         "開始日期": start_date,
         "結束日期": end_date,
         "姓名": customer_name,
@@ -81,27 +80,26 @@ if submit:
         df_new.to_csv(DATA_FILE, index=False)
     else:
         df_new.to_csv(DATA_FILE, mode='a', header=False, index=False)
-    st.toast(f"已新增訂單：{customer_name} ({selected_phone})", icon="🎉")
+    st.toast(f"已新增訂單：{customer_name}", icon="🎉")
 
 # --- 3. 主畫面顯示 ---
 
 if os.path.exists(DATA_FILE):
     df = pd.read_csv(DATA_FILE)
     
-    # 💡【防呆機制】：如果舊資料裡真的沒有 '手機編號' 這一欄，我們就幫它創一個，避免報錯
+    # 💡【防呆】：確保欄位名稱一致，防止報錯
     if '手機編號' not in df.columns:
         if '手機型號' in df.columns:
-            df['手機編號'] = df['手機型號'] # 相容性處理
+            df['手機編號'] = df['手機型號']
         else:
             df['手機編號'] = "未知型號"
 
-    # 數據概況 (KPI)
+    # KPI 計算
     total_revenue = df[df['狀態'] != '取消']['租金'].sum()
     active_rentals = len(df[df['狀態'] == '已取機(租借中)'])
     
-    # 計算還在在庫的手機 (總清單 - 租借中或預約中的)
     occupied_phones = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]['手機編號'].tolist()
-    available_count = len(PHONE_INVENTORY) - len(set(occupied_phones)) # 簡單估算
+    available_count = len(PHONE_INVENTORY) - len(set(occupied_phones))
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("💰 總營收", f"${total_revenue:,.0f}")
@@ -111,31 +109,51 @@ if os.path.exists(DATA_FILE):
 
     st.divider()
 
-    # --- 分頁檢視 ---
+    # --- 分頁管理 ---
     tab1, tab2, tab3 = st.tabs(["📋 所有訂單管理", "🔍 庫存佔用表", "📊 客群分析"])
 
     with tab1:
-        filter_status = st.multiselect("篩選狀態", df['狀態'].unique(), default=df['狀態'].unique())
-        show_df = df[df['狀態'].isin(filter_status)]
+        st.info("💡 這裡可以看到所有訂單，下方可以刪除舊資料。")
         
+        # 1. 顯示表格
         st.dataframe(
-            show_df.sort_values(by="開始日期", ascending=False),
-            use_container_width=True,
-            column_config={
-                "租金": st.column_config.NumberColumn(format="$%d"),
-                "押金": st.column_config.NumberColumn(format="$%d"),
-                "開始日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                "結束日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            }
+            df.sort_values(by="開始日期", ascending=False),
+            use_container_width=True
         )
-    
+
+        st.divider()
+        
+        # 2. 🔥 新增：刪除功能區 🔥
+        with st.expander("🗑️ 刪除訂單 (點擊展開)", expanded=False):
+            st.warning("注意：刪除後資料無法復原！")
+            
+            # 製作選單：顯示 "索引: 姓名 - 手機 - 日期" 讓老闆好選
+            # 使用反向順序，讓最新的訂單在最上面
+            delete_options = [f"{i}: {row['姓名']} - {row['手機編號']} ({row['開始日期']})" for i, row in df.iterrows()]
+            
+            if delete_options:
+                selected_to_delete = st.selectbox("選擇要刪除的訂單：", delete_options)
+                
+                if st.button("確認刪除此訂單 ❌"):
+                    # 抓出開頭的 index 數字
+                    index_to_drop = int(selected_to_delete.split(":")[0])
+                    
+                    # 刪除該行
+                    df = df.drop(index_to_drop)
+                    
+                    # 存回檔案
+                    df.to_csv(DATA_FILE, index=False)
+                    
+                    st.success("✅ 訂單已刪除！")
+                    st.rerun() # 立即重新整理畫面
+            else:
+                st.write("目前沒有訂單可刪除。")
+
     with tab2:
         st.subheader("手機預約狀況")
         occupied = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]
         if not occupied.empty:
-            # 這裡顯示時，標題顯示為 "手機型號" 比較好看，但資料來源是 '手機編號'
             display_cols = occupied[['手機編號', '開始日期', '結束日期', '姓名', '狀態']]
-            display_cols = display_cols.rename(columns={'手機編號': '手機型號'}) 
             st.dataframe(display_cols, use_container_width=True)
         else:
             st.success("目前所有手機皆在庫，隨時可租！")
@@ -143,7 +161,7 @@ if os.path.exists(DATA_FILE):
     with tab3:
         col_a, col_b = st.columns(2)
         with col_a:
-            st.write("📍 **租客來自哪個縣市看演唱會？**")
+            st.write("📍 **租客來自哪個縣市？**")
             if '縣市' in df.columns and not df['縣市'].empty:
                  st.bar_chart(df['縣市'].value_counts())
         with col_b:
