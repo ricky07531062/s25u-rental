@@ -19,7 +19,7 @@ PHONE_INVENTORY = [
 # 🌍 國家選項
 COUNTRY_OPTIONS = ["台灣", "南韓", "日本", "菲律賓", "其他"]
 
-# 📢 客群來源選項 (新功能)
+# 📢 客群來源選項
 SOURCE_OPTIONS = ["Threads", "FB", "IG", "其他"]
 
 # 🏙️ 台灣縣市完整清單
@@ -47,7 +47,6 @@ with st.sidebar:
             customer_name = st.text_input("客戶姓名")
             gender = st.selectbox("性別", ["女", "男", "其他"])
         with col2:
-            # 🔥 修改：移除電話，改為客群來源
             source = st.selectbox("客群來源", SOURCE_OPTIONS)
             age = st.number_input("年齡", 15, 80, 25)
 
@@ -105,7 +104,7 @@ if submit:
         "開始日期": start_date,
         "結束日期": end_date,
         "姓名": customer_name,
-        "來源": source, # 🔥 新增來源欄位
+        "來源": source,
         "性別": gender,
         "年齡": age,
         "國家": target_country,
@@ -114,7 +113,6 @@ if submit:
         "租金": rent_fee,
         "押金": deposit
     }
-    # 注意：這裡我們不再存入 "電話" 欄位
     
     df_new = pd.DataFrame([new_data])
     
@@ -138,13 +136,10 @@ if os.path.exists(DATA_FILE):
     if '國家' not in df.columns:
         df['國家'] = '台灣'
     
-    # 🔥 處理新舊資料交接：如果舊資料沒有「來源」欄位，填入「舊資料」
     if '來源' not in df.columns:
         df['來源'] = '舊資料'
     else:
         df['來源'] = df['來源'].fillna('未紀錄')
-
-    # 如果舊資料還有「電話」欄位，我們可以選擇不顯示它，以免混淆
         
     df['開始日期'] = pd.to_datetime(df['開始日期'], errors='coerce').dt.date
     df['結束日期'] = pd.to_datetime(df['結束日期'], errors='coerce').dt.date
@@ -182,18 +177,29 @@ if os.path.exists(DATA_FILE):
         else:
             display_df = df[temp_df['月份'] == selected_month].copy()
 
-        # 🔥 編輯表格設定：加入「來源」選單，移除「電話」
+        # 🔥 關鍵修改：只選擇我們要顯示的欄位 (這裡手動排除 '電話')
+        # 定義顯示順序
+        cols_to_show = [
+            "建檔時間", "狀態", "手機編號", "來源", 
+            "開始日期", "結束日期", "姓名", 
+            "性別", "年齡", "國家", "縣市", "演唱會", 
+            "租金", "押金"
+        ]
+        
+        # 只保留資料庫裡真的有的欄位 (防呆)
+        final_cols = [c for c in cols_to_show if c in display_df.columns]
+        
+        # 使用篩選後的欄位進行顯示
         edited_df = st.data_editor(
-            display_df, 
+            display_df[final_cols], 
             use_container_width=True,
             num_rows="dynamic",
             column_config={
                 "狀態": st.column_config.SelectboxColumn("狀態", options=["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"], required=True),
                 "手機編號": st.column_config.SelectboxColumn("手機型號", options=PHONE_INVENTORY, required=True),
-                "來源": st.column_config.SelectboxColumn("客群來源", options=SOURCE_OPTIONS, required=True), # 🔥 新增
+                "來源": st.column_config.SelectboxColumn("客群來源", options=SOURCE_OPTIONS, required=True),
                 "國家": st.column_config.SelectboxColumn("國家", options=COUNTRY_OPTIONS, required=True),
                 "縣市": st.column_config.SelectboxColumn("縣市", options=CITY_OPTIONS, required=True),
-                # 電話欄位如果舊資料有，會自動顯示為純文字，但這裡不特別設定 config
                 "租金": st.column_config.NumberColumn(format="$%d"),
                 "押金": st.column_config.NumberColumn(format="$%d"),
                 "開始日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
@@ -205,6 +211,7 @@ if os.path.exists(DATA_FILE):
             if selected_month == "全部顯示":
                 final_df = edited_df
             else:
+                # 這裡要小心，因為 edited_df 少了電話欄位，我們只更新存在的欄位
                 df.update(edited_df)
                 final_df = df
             final_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
@@ -225,22 +232,21 @@ if os.path.exists(DATA_FILE):
         st.subheader("手機預約狀況")
         occupied = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]
         if not occupied.empty:
-            st.dataframe(occupied[['手機編號', '開始日期', '結束日期', '姓名', '來源', '狀態']], use_container_width=True)
+            # 這裡也移除電話，加入來源
+            show_cols_tab2 = [c for c in ['手機編號', '開始日期', '結束日期', '姓名', '來源', '狀態'] if c in occupied.columns]
+            st.dataframe(occupied[show_cols_tab2], use_container_width=True)
         else:
             st.success("目前無租用中手機")
 
     with tab3:
         st.subheader("📊 客群數據儀表板")
         
-        # 1. 客群來源分析 (新增)
-        st.write("📢 **客群來源分佈 (Threads/FB/IG)**")
+        st.write("📢 **客群來源分佈**")
         if '來源' in df.columns and not df['來源'].empty:
-            # 橫向長條圖
             st.bar_chart(df['來源'].value_counts(), horizontal=True)
         
         st.divider()
 
-        # 2. 男女比例
         st.write("👫 **男女比例分析**")
         if '性別' in df.columns and not df['性別'].empty:
             gender_counts = df['性別'].value_counts()
@@ -256,7 +262,6 @@ if os.path.exists(DATA_FILE):
             
         st.divider()
 
-        # 3. 地區分析
         col_a, col_b = st.columns(2)
         with col_a:
             st.write("🌏 **租客前往國家**")
