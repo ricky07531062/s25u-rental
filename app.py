@@ -19,19 +19,13 @@ PHONE_INVENTORY = [
 # 🌍 國家選項
 COUNTRY_OPTIONS = ["台灣", "南韓", "日本", "菲律賓", "其他"]
 
-# 🏙️ 台灣縣市完整清單 (依照你提供的區域分類排序)
+# 🏙️ 台灣縣市完整清單
 CITY_OPTIONS = [
-    # 北部
     "臺北市", "新北市", "基隆市", "桃園市", "新竹市", "新竹縣", "宜蘭縣",
-    # 中部
     "臺中市", "苗栗縣", "彰化縣", "南投縣", "雲林縣",
-    # 南部
     "高雄市", "臺南市", "嘉義市", "嘉義縣", "屏東縣",
-    # 東部
     "花蓮縣", "臺東縣",
-    # 離島
     "澎湖縣", "金門縣", "連江縣",
-    # 其他
     "國外/其他"
 ]
 
@@ -39,7 +33,7 @@ st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_ic
 
 # --- 標題區 ---
 st.title("📱 演唱會手機租賃管理系統")
-st.caption("老闆專用後台 | 支援跨國租賃 | 月份分類管理")
+st.caption("老闆專用後台 | 支援跨國租賃 | 視覺化圖表優化")
 
 # --- 1. 左側邊欄：新增訂單 ---
 with st.sidebar:
@@ -54,26 +48,18 @@ with st.sidebar:
             age = st.number_input("年齡", 15, 80, 25)
 
         st.markdown("---")
-        
-        # 🔥 新增：國家選擇
         target_country = st.selectbox("前往國家", COUNTRY_OPTIONS)
-        
-        # 縣市選擇 (如果是國外，老闆可以選 '國外/其他'，或是照選不誤)
         target_city = st.selectbox("演唱會縣市", CITY_OPTIONS)
-        
         concert_name = st.text_input("演唱會名稱 (選填)")
         
-        # 日期選擇
         date_range = st.date_input("租借日期區間", value=(date.today(), date.today()), format="YYYY/MM/DD")
         
         st.markdown("---")
-        # 選擇哪一台手機
         selected_phone = st.selectbox("指派手機", PHONE_INVENTORY)
         
         rent_fee = st.number_input("租金收入 ($)", min_value=0, value=1200, step=100)
         deposit = st.number_input("收取押金 ($)", min_value=0, value=3000, step=500)
         
-        # 狀態
         status = st.selectbox("訂單狀態", ["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"])
         
         submit = st.form_submit_button("✅ 建立訂單")
@@ -86,24 +72,24 @@ with st.sidebar:
         current_df = pd.read_csv(DATA_FILE)
         csv_export = current_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
-            label="📥 下載 Excel 備份 (修正亂碼版)",
+            label="📥 下載 Excel 備份",
             data=csv_export,
             file_name=f"backup_rentals_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
             use_container_width=True
         )
     
-    uploaded_file = st.file_uploader("📤 上傳舊檔以還原資料", type=['csv'])
+    uploaded_file = st.file_uploader("📤 上傳舊檔還原", type=['csv'])
     if uploaded_file is not None:
         try:
             uploaded_df = pd.read_csv(uploaded_file)
             uploaded_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
-            st.success("✅ 資料還原成功！")
+            st.success("✅ 還原成功！")
             st.rerun()
         except Exception as e:
             st.error(f"還原失敗：{e}")
 
-# --- 2. 邏輯處理：儲存新訂單 ---
+# --- 2. 邏輯處理 ---
 if submit:
     start_date = date_range[0]
     end_date = date_range[1] if len(date_range) > 1 else start_date
@@ -118,7 +104,7 @@ if submit:
         "電話": phone_number,
         "性別": gender,
         "年齡": age,
-        "國家": target_country, # 🔥 新欄位
+        "國家": target_country,
         "縣市": target_city,
         "演唱會": concert_name,
         "租金": rent_fee,
@@ -141,23 +127,16 @@ if submit:
 if os.path.exists(DATA_FILE):
     df = pd.read_csv(DATA_FILE)
     
-    # --- 防呆處理區 ---
-    # 1. 手機欄位舊換新
+    # 防呆與資料清洗
     if '手機編號' not in df.columns:
-        if '手機型號' in df.columns:
-            df['手機編號'] = df['手機型號']
-        else:
-            df['手機編號'] = "未知型號"
-
-    # 2. 🔥 國家欄位補全 (舊資料沒有這個欄位，預設填入 '台灣')
+        df['手機編號'] = df.get('手機型號', "未知型號")
     if '國家' not in df.columns:
         df['國家'] = '台灣'
-
-    # 3. 日期格式轉換
+        
     df['開始日期'] = pd.to_datetime(df['開始日期'], errors='coerce').dt.date
     df['結束日期'] = pd.to_datetime(df['結束日期'], errors='coerce').dt.date
 
-    # KPI 計算
+    # KPI
     total_revenue = df[df['狀態'] != '取消']['租金'].sum()
     active_rentals = len(df[df['狀態'] == '已取機(租借中)'])
     occupied_phones = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]['手機編號'].tolist()
@@ -172,28 +151,24 @@ if os.path.exists(DATA_FILE):
     st.divider()
 
     # --- 分頁管理 ---
-    tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理與編輯", "🔍 庫存佔用表", "📊 客群分析"])
+    tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理", "🔍 庫存表", "📊 客群分析"])
 
     with tab1:
-        st.info("💡 操作教學：上方選擇月份，編輯後請務必按下「💾 儲存修改」！")
-        
-        # 月份篩選器
+        # 月份篩選邏輯
         temp_df = df.copy()
         temp_df['日期物件'] = pd.to_datetime(temp_df['開始日期'])
         temp_df['月份'] = temp_df['日期物件'].dt.strftime('%Y-%m')
         available_months = sorted(temp_df['月份'].dropna().unique().tolist(), reverse=True)
         
-        col_filter, col_dummy = st.columns([1, 3])
+        col_filter, _ = st.columns([1, 3])
         with col_filter:
-            selected_month = st.selectbox("📅 請選擇月份過濾：", ["全部顯示"] + available_months)
+            selected_month = st.selectbox("📅 選擇月份：", ["全部顯示"] + available_months)
 
         if selected_month == "全部顯示":
-            display_df = df.copy()
-            display_df = display_df.sort_values(by="開始日期", ascending=False)
+            display_df = df.sort_values(by="開始日期", ascending=False)
         else:
             display_df = df[temp_df['月份'] == selected_month].copy()
 
-        # 🔥 可編輯表格 (加入國家與完整縣市選單)
         edited_df = st.data_editor(
             display_df, 
             use_container_width=True,
@@ -201,8 +176,8 @@ if os.path.exists(DATA_FILE):
             column_config={
                 "狀態": st.column_config.SelectboxColumn("狀態", options=["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"], required=True),
                 "手機編號": st.column_config.SelectboxColumn("手機型號", options=PHONE_INVENTORY, required=True),
-                "國家": st.column_config.SelectboxColumn("國家", options=COUNTRY_OPTIONS, required=True), # 🔥 國家也可編輯
-                "縣市": st.column_config.SelectboxColumn("縣市", options=CITY_OPTIONS, required=True), # 🔥 縣市也可編輯
+                "國家": st.column_config.SelectboxColumn("國家", options=COUNTRY_OPTIONS, required=True),
+                "縣市": st.column_config.SelectboxColumn("縣市", options=CITY_OPTIONS, required=True),
                 "租金": st.column_config.NumberColumn(format="$%d"),
                 "押金": st.column_config.NumberColumn(format="$%d"),
                 "開始日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
@@ -210,30 +185,24 @@ if os.path.exists(DATA_FILE):
             }
         )
 
-        col_save, col_info = st.columns([1, 4])
-        with col_save:
-            if st.button("💾 儲存修改", type="primary"):
-                if selected_month == "全部顯示":
-                    final_df = edited_df
-                else:
-                    df.update(edited_df)
-                    final_df = df
-                
-                final_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
-                st.success(f"✅ {selected_month} 的資料已更新！")
-                st.rerun()
-        
-        st.divider()
-        
-        with st.expander("🗑️ 刪除訂單 (進階選項)", expanded=False):
-            st.warning("⚠️ 這裡可以刪除任意訂單")
+        if st.button("💾 儲存修改", type="primary"):
+            if selected_month == "全部顯示":
+                final_df = edited_df
+            else:
+                df.update(edited_df)
+                final_df = df
+            final_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
+            st.success("✅ 資料已更新！")
+            st.rerun()
+
+        with st.expander("🗑️ 刪除訂單"):
             delete_options = [f"{i}: {row['姓名']} - {row['手機編號']} ({row['開始日期']})" for i, row in df.iterrows()]
             if delete_options:
-                selected_to_delete = st.selectbox("選擇要永久刪除的訂單：", delete_options)
+                del_sel = st.selectbox("刪除對象：", delete_options)
                 if st.button("確認刪除 ❌"):
-                    index_to_drop = int(selected_to_delete.split(":")[0])
-                    df.drop(index_to_drop).to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
-                    st.success("訂單已刪除！")
+                    idx = int(del_sel.split(":")[0])
+                    df.drop(idx).to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
+                    st.success("已刪除！")
                     st.rerun()
 
     with tab2:
@@ -242,21 +211,46 @@ if os.path.exists(DATA_FILE):
         if not occupied.empty:
             st.dataframe(occupied[['手機編號', '開始日期', '結束日期', '姓名', '國家', '狀態']], use_container_width=True)
         else:
-            st.success("目前所有手機皆在庫，隨時可租！")
+            st.success("目前無租用中手機")
 
     with tab3:
+        st.subheader("📊 客群數據儀表板")
+        
+        # 1. 男女比例區塊 (新增)
+        st.write("👫 **男女比例分析**")
+        if '性別' in df.columns and not df['性別'].empty:
+            gender_counts = df['性別'].value_counts()
+            
+            # 顯示數字指標
+            g_col1, g_col2, g_col3 = st.columns(3)
+            total_people = gender_counts.sum()
+            male_count = gender_counts.get('男', 0)
+            female_count = gender_counts.get('女', 0)
+            
+            g_col1.metric("總人數", f"{total_people} 人")
+            g_col2.metric("女性佔比", f"{female_count/total_people:.0%}" if total_people > 0 else "0%", f"{female_count} 人")
+            g_col3.metric("男性佔比", f"{male_count/total_people:.0%}" if total_people > 0 else "0%", f"{male_count} 人")
+            
+            # 顯示橫向圖表 (這也改成橫的，視覺比較統一)
+            st.bar_chart(gender_counts, horizontal=True)
+            
+        st.divider()
+
+        # 2. 地區分析區塊 (修改為橫向圖表)
         col_a, col_b = st.columns(2)
+        
         with col_a:
-            st.write("🌏 **租客前往國家比例**")
+            st.write("🌏 **租客前往國家** (橫軸顯示數量)")
             if '國家' in df.columns and not df['國家'].empty:
-                 st.bar_chart(df['國家'].value_counts())
+                # horizontal=True 讓長條圖變橫的，字就會變正的
+                st.bar_chart(df['國家'].value_counts(), horizontal=True)
+                
         with col_b:
             st.write("📍 **台灣熱門演唱會縣市**")
-            # 這裡我們簡單過濾掉 '國外' 只看台灣的縣市分佈
             if '縣市' in df.columns and not df['縣市'].empty:
                 tw_data = df[df['國家'] == '台灣']
                 if not tw_data.empty:
-                    st.bar_chart(tw_data['縣市'].value_counts())
+                    st.bar_chart(tw_data['縣市'].value_counts(), horizontal=True)
                 else:
                     st.info("尚無台灣訂單數據")
 
