@@ -20,7 +20,7 @@ st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_ic
 
 # --- 標題區 ---
 st.title("📱 演唱會手機租賃管理系統")
-st.caption("老闆專用後台 | 點擊表格即可直接修改 | 記得按儲存")
+st.caption("老闆專用後台 | 支援 Excel 防亂碼下載 | 資料更安全")
 
 # --- 1. 左側邊欄：新增訂單 ---
 with st.sidebar:
@@ -52,32 +52,35 @@ with st.sidebar:
         status = st.selectbox("訂單狀態", ["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"])
         
         submit = st.form_submit_button("✅ 建立訂單")
-        
-    # --- 🔥 新增功能：資料保險箱 🔥 ---
+
+    # --- 🔥 資料保險箱 (防亂碼升級版) 🔥 ---
     st.markdown("---")
-    st.header("📂 資料保險箱 (備份/還原)")
-    st.caption("⚠️ 每次修改網頁程式碼前，請務必先下載備份！")
+    st.header("📂 資料保險箱")
+    st.caption("現在下載的檔案，Excel 可以直接打開了！")
     
-    # 1. 下載功能
+    # 讀取目前的資料庫 (如果存在)
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "rb") as file:
-            st.download_button(
-                label="📥 下載 Excel 備份 (CSV)",
-                data=file,
-                file_name=f"backup_rentals_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+        current_df = pd.read_csv(DATA_FILE)
+        
+        # 💡【關鍵技術】：這裡強制轉碼成 'utf-8-sig'，Excel 就不會亂碼了
+        csv_export = current_df.to_csv(index=False).encode('utf-8-sig')
+        
+        st.download_button(
+            label="📥 下載 Excel 備份 (修正亂碼版)",
+            data=csv_export,
+            file_name=f"backup_rentals_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
     
-    # 2. 上傳還原功能
+    # 上傳還原功能
     uploaded_file = st.file_uploader("📤 上傳舊檔以還原資料", type=['csv'])
     if uploaded_file is not None:
         try:
-            # 讀取上傳的檔案
             uploaded_df = pd.read_csv(uploaded_file)
-            # 存檔覆蓋現在的檔案
-            uploaded_df.to_csv(DATA_FILE, index=False)
-            st.success("✅ 資料還原成功！正在重新整理...")
+            # 存檔時也加上 utf-8-sig
+            uploaded_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
+            st.success("✅ 資料還原成功！")
             st.rerun()
         except Exception as e:
             st.error(f"還原失敗：{e}")
@@ -106,9 +109,15 @@ if submit:
     df_new = pd.DataFrame([new_data])
     
     if not os.path.exists(DATA_FILE):
-        df_new.to_csv(DATA_FILE, index=False)
+        # 💡 存檔時加入 encoding='utf-8-sig'
+        df_new.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
     else:
-        df_new.to_csv(DATA_FILE, mode='a', header=False, index=False)
+        # 💡 附加模式也要注意編碼，但 CSV 附加比較特殊，這裡為了安全，我們讀出來再全寫回去
+        # 這樣最穩，不會有編碼混亂問題
+        existing_df = pd.read_csv(DATA_FILE)
+        updated_df = pd.concat([existing_df, df_new], ignore_index=True)
+        updated_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
+        
     st.toast(f"已新增訂單：{customer_name}", icon="🎉")
 
 # --- 3. 主畫面顯示 ---
@@ -146,7 +155,7 @@ if os.path.exists(DATA_FILE):
     tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理與編輯", "🔍 庫存佔用表", "📊 客群分析"])
 
     with tab1:
-        st.info("💡 修改完請按「💾 儲存修改」。若資料遺失，請從左側「資料保險箱」上傳之前的備份。")
+        st.info("💡 修改完請按「💾 儲存修改」。左下角下載的檔案已支援 Excel 中文顯示。")
         
         edited_df = st.data_editor(
             df.sort_values(by="開始日期", ascending=False), 
@@ -165,7 +174,8 @@ if os.path.exists(DATA_FILE):
         col_save, col_info = st.columns([1, 4])
         with col_save:
             if st.button("💾 儲存修改", type="primary"):
-                edited_df.to_csv(DATA_FILE, index=False)
+                # 💡 存檔時加入 encoding='utf-8-sig'
+                edited_df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
                 st.success("✅ 資料已更新！")
                 st.rerun()
         
@@ -178,7 +188,8 @@ if os.path.exists(DATA_FILE):
                 selected_to_delete = st.selectbox("選擇要永久刪除的訂單：", delete_options)
                 if st.button("確認刪除 ❌"):
                     index_to_drop = int(selected_to_delete.split(":")[0])
-                    df.drop(index_to_drop).to_csv(DATA_FILE, index=False)
+                    # 💡 存檔時加入 encoding='utf-8-sig'
+                    df.drop(index_to_drop).to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
                     st.success("訂單已刪除！")
                     st.rerun()
 
