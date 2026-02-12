@@ -19,6 +19,9 @@ PHONE_INVENTORY = [
 # 🌍 國家選項
 COUNTRY_OPTIONS = ["台灣", "南韓", "日本", "菲律賓", "其他"]
 
+# 📢 客群來源選項 (新功能)
+SOURCE_OPTIONS = ["Threads", "FB", "IG", "其他"]
+
 # 🏙️ 台灣縣市完整清單
 CITY_OPTIONS = [
     "臺北市", "新北市", "基隆市", "桃園市", "新竹市", "新竹縣", "宜蘭縣",
@@ -33,7 +36,7 @@ st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_ic
 
 # --- 標題區 ---
 st.title("📱 演唱會手機租賃管理系統")
-st.caption("老闆專用後台 | 支援跨國租賃 | 視覺化圖表優化")
+st.caption("老闆專用後台 | 行銷數據分析 | 來源追蹤")
 
 # --- 1. 左側邊欄：新增訂單 ---
 with st.sidebar:
@@ -44,7 +47,8 @@ with st.sidebar:
             customer_name = st.text_input("客戶姓名")
             gender = st.selectbox("性別", ["女", "男", "其他"])
         with col2:
-            phone_number = st.text_input("聯絡電話")
+            # 🔥 修改：移除電話，改為客群來源
+            source = st.selectbox("客群來源", SOURCE_OPTIONS)
             age = st.number_input("年齡", 15, 80, 25)
 
         st.markdown("---")
@@ -101,7 +105,7 @@ if submit:
         "開始日期": start_date,
         "結束日期": end_date,
         "姓名": customer_name,
-        "電話": phone_number,
+        "來源": source, # 🔥 新增來源欄位
         "性別": gender,
         "年齡": age,
         "國家": target_country,
@@ -110,6 +114,7 @@ if submit:
         "租金": rent_fee,
         "押金": deposit
     }
+    # 注意：這裡我們不再存入 "電話" 欄位
     
     df_new = pd.DataFrame([new_data])
     
@@ -127,11 +132,19 @@ if submit:
 if os.path.exists(DATA_FILE):
     df = pd.read_csv(DATA_FILE)
     
-    # 防呆與資料清洗
+    # --- 防呆與資料清洗 ---
     if '手機編號' not in df.columns:
         df['手機編號'] = df.get('手機型號', "未知型號")
     if '國家' not in df.columns:
         df['國家'] = '台灣'
+    
+    # 🔥 處理新舊資料交接：如果舊資料沒有「來源」欄位，填入「舊資料」
+    if '來源' not in df.columns:
+        df['來源'] = '舊資料'
+    else:
+        df['來源'] = df['來源'].fillna('未紀錄')
+
+    # 如果舊資料還有「電話」欄位，我們可以選擇不顯示它，以免混淆
         
     df['開始日期'] = pd.to_datetime(df['開始日期'], errors='coerce').dt.date
     df['結束日期'] = pd.to_datetime(df['結束日期'], errors='coerce').dt.date
@@ -151,10 +164,10 @@ if os.path.exists(DATA_FILE):
     st.divider()
 
     # --- 分頁管理 ---
-    tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理", "🔍 庫存表", "📊 客群分析"])
+    tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理", "🔍 庫存表", "📊 客群數據"])
 
     with tab1:
-        # 月份篩選邏輯
+        # 月份篩選
         temp_df = df.copy()
         temp_df['日期物件'] = pd.to_datetime(temp_df['開始日期'])
         temp_df['月份'] = temp_df['日期物件'].dt.strftime('%Y-%m')
@@ -169,6 +182,7 @@ if os.path.exists(DATA_FILE):
         else:
             display_df = df[temp_df['月份'] == selected_month].copy()
 
+        # 🔥 編輯表格設定：加入「來源」選單，移除「電話」
         edited_df = st.data_editor(
             display_df, 
             use_container_width=True,
@@ -176,8 +190,10 @@ if os.path.exists(DATA_FILE):
             column_config={
                 "狀態": st.column_config.SelectboxColumn("狀態", options=["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"], required=True),
                 "手機編號": st.column_config.SelectboxColumn("手機型號", options=PHONE_INVENTORY, required=True),
+                "來源": st.column_config.SelectboxColumn("客群來源", options=SOURCE_OPTIONS, required=True), # 🔥 新增
                 "國家": st.column_config.SelectboxColumn("國家", options=COUNTRY_OPTIONS, required=True),
                 "縣市": st.column_config.SelectboxColumn("縣市", options=CITY_OPTIONS, required=True),
+                # 電話欄位如果舊資料有，會自動顯示為純文字，但這裡不特別設定 config
                 "租金": st.column_config.NumberColumn(format="$%d"),
                 "押金": st.column_config.NumberColumn(format="$%d"),
                 "開始日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
@@ -209,19 +225,25 @@ if os.path.exists(DATA_FILE):
         st.subheader("手機預約狀況")
         occupied = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]
         if not occupied.empty:
-            st.dataframe(occupied[['手機編號', '開始日期', '結束日期', '姓名', '國家', '狀態']], use_container_width=True)
+            st.dataframe(occupied[['手機編號', '開始日期', '結束日期', '姓名', '來源', '狀態']], use_container_width=True)
         else:
             st.success("目前無租用中手機")
 
     with tab3:
         st.subheader("📊 客群數據儀表板")
         
-        # 1. 男女比例區塊 (新增)
+        # 1. 客群來源分析 (新增)
+        st.write("📢 **客群來源分佈 (Threads/FB/IG)**")
+        if '來源' in df.columns and not df['來源'].empty:
+            # 橫向長條圖
+            st.bar_chart(df['來源'].value_counts(), horizontal=True)
+        
+        st.divider()
+
+        # 2. 男女比例
         st.write("👫 **男女比例分析**")
         if '性別' in df.columns and not df['性別'].empty:
             gender_counts = df['性別'].value_counts()
-            
-            # 顯示數字指標
             g_col1, g_col2, g_col3 = st.columns(3)
             total_people = gender_counts.sum()
             male_count = gender_counts.get('男', 0)
@@ -230,19 +252,15 @@ if os.path.exists(DATA_FILE):
             g_col1.metric("總人數", f"{total_people} 人")
             g_col2.metric("女性佔比", f"{female_count/total_people:.0%}" if total_people > 0 else "0%", f"{female_count} 人")
             g_col3.metric("男性佔比", f"{male_count/total_people:.0%}" if total_people > 0 else "0%", f"{male_count} 人")
-            
-            # 顯示橫向圖表 (這也改成橫的，視覺比較統一)
             st.bar_chart(gender_counts, horizontal=True)
             
         st.divider()
 
-        # 2. 地區分析區塊 (修改為橫向圖表)
+        # 3. 地區分析
         col_a, col_b = st.columns(2)
-        
         with col_a:
-            st.write("🌏 **租客前往國家** (橫軸顯示數量)")
+            st.write("🌏 **租客前往國家**")
             if '國家' in df.columns and not df['國家'].empty:
-                # horizontal=True 讓長條圖變橫的，字就會變正的
                 st.bar_chart(df['國家'].value_counts(), horizontal=True)
                 
         with col_b:
