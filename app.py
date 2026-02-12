@@ -5,13 +5,21 @@ from datetime import date, datetime
 
 # --- 設定 ---
 DATA_FILE = 's25u_rental_db.csv'
-# 假設老闆你有 5 台手機 (可以自己增減)
-PHONE_INVENTORY = ["S25U-01 (黑)", "S25U-02 (灰)", "S25U-03 (銀)", "S25U-04 (紫)", "S25U-05 (金)"]
 
-st.set_page_config(page_title="S25U 租賃管理系統", layout="wide", page_icon="📱")
+# 🔥 老闆指定的最新手機庫存清單
+PHONE_INVENTORY = [
+    "S25U 白色",
+    "S25U 綠色",
+    "S25U 藍色",
+    "S24U 藍色",
+    "S23U 黑色",
+    "iPhone 17 Pro 銀色"
+]
+
+st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_icon="📱")
 
 # --- 標題區 ---
-st.title("📱 S25U 演唱會租賃管理系統 (專業版)")
+st.title("📱 演唱會手機租賃管理系統")
 st.caption("老闆專用後台 | 庫存監控 | 營收統計")
 
 # --- 1. 左側邊欄：新增/登記訂單 ---
@@ -34,7 +42,7 @@ with st.sidebar:
         date_range = st.date_input("租借日期區間", value=(date.today(), date.today()), format="YYYY/MM/DD")
         
         st.markdown("---")
-        # 選擇哪一台手機
+        # 選擇哪一台手機 (這裡會顯示你剛剛更新的清單)
         selected_phone = st.selectbox("指派手機", PHONE_INVENTORY)
         
         rent_fee = st.number_input("租金收入 ($)", min_value=0, value=1200, step=100)
@@ -54,7 +62,7 @@ if submit:
     new_data = {
         "建檔時間": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "狀態": status,
-        "手機編號": selected_phone,
+        "手機型號": selected_phone, # 欄位名稱改成手機型號比較直覺
         "開始日期": start_date,
         "結束日期": end_date,
         "姓名": customer_name,
@@ -83,12 +91,15 @@ if os.path.exists(DATA_FILE):
     # 數據概況 (KPI)
     total_revenue = df[df['狀態'] != '取消']['租金'].sum()
     active_rentals = len(df[df['狀態'] == '已取機(租借中)'])
-    pending_rentals = len(df[df['狀態'] == '預約確認'])
+    
+    # 計算還在在庫的手機 (總清單 - 租借中或預約中的)
+    occupied_phones = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]['手機型號'].tolist()
+    available_count = len(PHONE_INVENTORY) - len(set(occupied_phones)) # 簡單估算
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("💰 總營收", f"${total_revenue:,.0f}")
     kpi2.metric("🚀 出租中", f"{active_rentals} 台")
-    kpi3.metric("📅 預約中", f"{pending_rentals} 單")
+    kpi3.metric("📦 庫存剩餘", f"約 {available_count} 台")
     kpi4.metric("📈 總訂單數", len(df))
 
     st.divider()
@@ -97,12 +108,9 @@ if os.path.exists(DATA_FILE):
     tab1, tab2, tab3 = st.tabs(["📋 所有訂單管理", "🔍 庫存佔用表", "📊 客群分析"])
 
     with tab1:
-        # 提供簡單的篩選器
         filter_status = st.multiselect("篩選狀態", df['狀態'].unique(), default=df['狀態'].unique())
         show_df = df[df['狀態'].isin(filter_status)]
         
-        # 顯示可編輯的表格 (老闆可以直接在表格上改狀態，例如把 '預約' 改成 '已歸還')
-        st.info("💡 提示：雖然這裡是唯讀檢視，若需修改建議下載 Excel 修改後重新上傳（進階功能需資料庫串接）")
         st.dataframe(
             show_df.sort_values(by="開始日期", ascending=False),
             use_container_width=True,
@@ -116,10 +124,9 @@ if os.path.exists(DATA_FILE):
     
     with tab2:
         st.subheader("手機預約狀況")
-        # 這裡簡單顯示哪些手機被借出去了 (針對還沒歸還的)
         occupied = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]
         if not occupied.empty:
-            st.dataframe(occupied[['手機編號', '開始日期', '結束日期', '姓名', '狀態']], use_container_width=True)
+            st.dataframe(occupied[['手機型號', '開始日期', '結束日期', '姓名', '狀態']], use_container_width=True)
         else:
             st.success("目前所有手機皆在庫，隨時可租！")
 
@@ -127,10 +134,13 @@ if os.path.exists(DATA_FILE):
         col_a, col_b = st.columns(2)
         with col_a:
             st.write("📍 **租客來自哪個縣市看演唱會？**")
-            st.bar_chart(df['縣市'].value_counts())
+            # 簡單檢查是否有數據
+            if '縣市' in df.columns and not df['縣市'].empty:
+                 st.bar_chart(df['縣市'].value_counts())
         with col_b:
             st.write("👩 **租客性別比例**")
-            st.bar_chart(df['性別'].value_counts())
+            if '性別' in df.columns and not df['性別'].empty:
+                st.bar_chart(df['性別'].value_counts())
 
 else:
     st.info("👋 歡迎老闆！請從左側建立您的第一筆租借資料。")
