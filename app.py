@@ -6,7 +6,7 @@ from datetime import date, datetime
 # --- 設定 ---
 DATA_FILE = 's25u_rental_db.csv'
 
-# 🔥 最新手機庫存清單
+# 🔥 手機庫存清單
 PHONE_INVENTORY = [
     "S25U 白色",
     "S25U 綠色",
@@ -22,7 +22,7 @@ st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_ic
 st.title("📱 演唱會手機租賃管理系統")
 st.caption("老闆專用後台 | 點擊表格即可直接修改 | 記得按儲存")
 
-# --- 1. 左側邊欄：新增/登記訂老闆單 ---
+# --- 1. 左側邊欄：新增訂單 ---
 with st.sidebar:
     st.header("📝 新增租借單")
     with st.form(key='rental_form'):
@@ -52,6 +52,35 @@ with st.sidebar:
         status = st.selectbox("訂單狀態", ["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"])
         
         submit = st.form_submit_button("✅ 建立訂單")
+        
+    # --- 🔥 新增功能：資料保險箱 🔥 ---
+    st.markdown("---")
+    st.header("📂 資料保險箱 (備份/還原)")
+    st.caption("⚠️ 每次修改網頁程式碼前，請務必先下載備份！")
+    
+    # 1. 下載功能
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "rb") as file:
+            st.download_button(
+                label="📥 下載 Excel 備份 (CSV)",
+                data=file,
+                file_name=f"backup_rentals_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+    
+    # 2. 上傳還原功能
+    uploaded_file = st.file_uploader("📤 上傳舊檔以還原資料", type=['csv'])
+    if uploaded_file is not None:
+        try:
+            # 讀取上傳的檔案
+            uploaded_df = pd.read_csv(uploaded_file)
+            # 存檔覆蓋現在的檔案
+            uploaded_df.to_csv(DATA_FILE, index=False)
+            st.success("✅ 資料還原成功！正在重新整理...")
+            st.rerun()
+        except Exception as e:
+            st.error(f"還原失敗：{e}")
 
 # --- 2. 邏輯處理：儲存新訂單 ---
 if submit:
@@ -88,22 +117,20 @@ if os.path.exists(DATA_FILE):
     # 讀取資料
     df = pd.read_csv(DATA_FILE)
     
-    # 💡【防呆 1】：確保欄位名稱一致
+    # 防呆處理
     if '手機編號' not in df.columns:
         if '手機型號' in df.columns:
             df['手機編號'] = df['手機型號']
         else:
             df['手機編號'] = "未知型號"
 
-    # 💡【防呆 2】：這裡就是修復紅色畫面的關鍵！強制轉換日期格式
-    # 把文字轉成真正的 Date 物件，如果轉換失敗就留空，避免程式崩潰
+    # 日期格式轉換
     df['開始日期'] = pd.to_datetime(df['開始日期'], errors='coerce').dt.date
     df['結束日期'] = pd.to_datetime(df['結束日期'], errors='coerce').dt.date
 
     # KPI 計算
     total_revenue = df[df['狀態'] != '取消']['租金'].sum()
     active_rentals = len(df[df['狀態'] == '已取機(租借中)'])
-    
     occupied_phones = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]['手機編號'].tolist()
     available_count = len(PHONE_INVENTORY) - len(set(occupied_phones))
     
@@ -119,24 +146,15 @@ if os.path.exists(DATA_FILE):
     tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理與編輯", "🔍 庫存佔用表", "📊 客群分析"])
 
     with tab1:
-        st.info("💡 操作教學：直接點擊下方表格的內容進行修改，改完後請務必按下「💾 儲存修改」按鈕！")
+        st.info("💡 修改完請按「💾 儲存修改」。若資料遺失，請從左側「資料保險箱」上傳之前的備份。")
         
-        # 🔥🔥🔥 可編輯表格 🔥🔥🔥
         edited_df = st.data_editor(
             df.sort_values(by="開始日期", ascending=False), 
             use_container_width=True,
             num_rows="dynamic",
             column_config={
-                "狀態": st.column_config.SelectboxColumn(
-                    "狀態",
-                    options=["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"],
-                    required=True
-                ),
-                "手機編號": st.column_config.SelectboxColumn(
-                    "手機型號",
-                    options=PHONE_INVENTORY,
-                    required=True
-                ),
+                "狀態": st.column_config.SelectboxColumn("狀態", options=["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"], required=True),
+                "手機編號": st.column_config.SelectboxColumn("手機型號", options=PHONE_INVENTORY, required=True),
                 "租金": st.column_config.NumberColumn(format="$%d"),
                 "押金": st.column_config.NumberColumn(format="$%d"),
                 "開始日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
@@ -144,11 +162,9 @@ if os.path.exists(DATA_FILE):
             }
         )
 
-        # 儲存按鈕
         col_save, col_info = st.columns([1, 4])
         with col_save:
             if st.button("💾 儲存修改", type="primary"):
-                # 將修改後的資料寫回 CSV
                 edited_df.to_csv(DATA_FILE, index=False)
                 st.success("✅ 資料已更新！")
                 st.rerun()
@@ -156,8 +172,7 @@ if os.path.exists(DATA_FILE):
         st.divider()
         
         with st.expander("🗑️ 刪除訂單 (進階選項)", expanded=False):
-            st.warning("注意：建議直接在上方表格將狀態改為「取消」即可。若堅持刪除，請由下方操作。")
-            # 這裡也要防呆，轉成字串顯示避免報錯
+            st.warning("⚠️ 刪除不可復原，建議使用備份功能先存檔。")
             delete_options = [f"{i}: {row['姓名']} - {row['手機編號']} ({row['開始日期']})" for i, row in df.iterrows()]
             if delete_options:
                 selected_to_delete = st.selectbox("選擇要永久刪除的訂單：", delete_options)
@@ -171,8 +186,7 @@ if os.path.exists(DATA_FILE):
         st.subheader("手機預約狀況")
         occupied = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]
         if not occupied.empty:
-            display_cols = occupied[['手機編號', '開始日期', '結束日期', '姓名', '狀態']]
-            st.dataframe(display_cols, use_container_width=True)
+            st.dataframe(occupied[['手機編號', '開始日期', '結束日期', '姓名', '狀態']], use_container_width=True)
         else:
             st.success("目前所有手機皆在庫，隨時可租！")
 
@@ -188,4 +202,4 @@ if os.path.exists(DATA_FILE):
                 st.bar_chart(df['性別'].value_counts())
 
 else:
-    st.info("👋 歡迎老闆！請從左側建立您的第一筆租借資料。")
+    st.info("👋 歡迎老闆！左側可上傳舊檔還原資料，或建立新資料。")
