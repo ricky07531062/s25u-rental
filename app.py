@@ -42,7 +42,7 @@ with st.sidebar:
         date_range = st.date_input("租借日期區間", value=(date.today(), date.today()), format="YYYY/MM/DD")
         
         st.markdown("---")
-        # 選擇哪一台手機 (這裡會顯示你剛剛更新的清單)
+        # 選擇哪一台手機
         selected_phone = st.selectbox("指派手機", PHONE_INVENTORY)
         
         rent_fee = st.number_input("租金收入 ($)", min_value=0, value=1200, step=100)
@@ -62,7 +62,7 @@ if submit:
     new_data = {
         "建檔時間": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "狀態": status,
-        "手機型號": selected_phone, # 欄位名稱改成手機型號比較直覺
+        "手機編號": selected_phone, # 💡【修復關鍵】：改回使用 '手機編號' 這個舊名稱，但內容存的是新手機
         "開始日期": start_date,
         "結束日期": end_date,
         "姓名": customer_name,
@@ -88,12 +88,19 @@ if submit:
 if os.path.exists(DATA_FILE):
     df = pd.read_csv(DATA_FILE)
     
+    # 💡【防呆機制】：如果舊資料裡真的沒有 '手機編號' 這一欄，我們就幫它創一個，避免報錯
+    if '手機編號' not in df.columns:
+        if '手機型號' in df.columns:
+            df['手機編號'] = df['手機型號'] # 相容性處理
+        else:
+            df['手機編號'] = "未知型號"
+
     # 數據概況 (KPI)
     total_revenue = df[df['狀態'] != '取消']['租金'].sum()
     active_rentals = len(df[df['狀態'] == '已取機(租借中)'])
     
     # 計算還在在庫的手機 (總清單 - 租借中或預約中的)
-    occupied_phones = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]['手機型號'].tolist()
+    occupied_phones = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]['手機編號'].tolist()
     available_count = len(PHONE_INVENTORY) - len(set(occupied_phones)) # 簡單估算
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -126,7 +133,10 @@ if os.path.exists(DATA_FILE):
         st.subheader("手機預約狀況")
         occupied = df[df['狀態'].isin(['預約確認', '已取機(租借中)'])]
         if not occupied.empty:
-            st.dataframe(occupied[['手機型號', '開始日期', '結束日期', '姓名', '狀態']], use_container_width=True)
+            # 這裡顯示時，標題顯示為 "手機型號" 比較好看，但資料來源是 '手機編號'
+            display_cols = occupied[['手機編號', '開始日期', '結束日期', '姓名', '狀態']]
+            display_cols = display_cols.rename(columns={'手機編號': '手機型號'}) 
+            st.dataframe(display_cols, use_container_width=True)
         else:
             st.success("目前所有手機皆在庫，隨時可租！")
 
@@ -134,7 +144,6 @@ if os.path.exists(DATA_FILE):
         col_a, col_b = st.columns(2)
         with col_a:
             st.write("📍 **租客來自哪個縣市看演唱會？**")
-            # 簡單檢查是否有數據
             if '縣市' in df.columns and not df['縣市'].empty:
                  st.bar_chart(df['縣市'].value_counts())
         with col_b:
