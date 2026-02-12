@@ -6,7 +6,7 @@ from datetime import date, datetime
 # --- 設定 ---
 DATA_FILE = 's25u_rental_db.csv'
 
-# 🔥 最新手機庫存清單
+# 🔥 最新手機庫存清單 (也會用在表格編輯的下拉選單)
 PHONE_INVENTORY = [
     "S25U 白色",
     "S25U 綠色",
@@ -20,7 +20,7 @@ st.set_page_config(page_title="手機租賃管理系統", layout="wide", page_ic
 
 # --- 標題區 ---
 st.title("📱 演唱會手機租賃管理系統")
-st.caption("老闆專用後台 | 庫存監控 | 營收統計 | 刪除功能")
+st.caption("老闆專用後台 | 點擊表格即可直接修改 | 記得按儲存")
 
 # --- 1. 左側邊欄：新增/登記訂單 ---
 with st.sidebar:
@@ -53,7 +53,7 @@ with st.sidebar:
         
         submit = st.form_submit_button("✅ 建立訂單")
 
-# --- 2. 邏輯處理：儲存資料 ---
+# --- 2. 邏輯處理：儲存新訂單 ---
 if submit:
     start_date = date_range[0]
     end_date = date_range[1] if len(date_range) > 1 else start_date
@@ -85,9 +85,10 @@ if submit:
 # --- 3. 主畫面顯示 ---
 
 if os.path.exists(DATA_FILE):
+    # 讀取資料
     df = pd.read_csv(DATA_FILE)
     
-    # 💡【防呆】：確保欄位名稱一致，防止報錯
+    # 💡【防呆】：確保欄位名稱一致
     if '手機編號' not in df.columns:
         if '手機型號' in df.columns:
             df['手機編號'] = df['手機型號']
@@ -110,44 +111,56 @@ if os.path.exists(DATA_FILE):
     st.divider()
 
     # --- 分頁管理 ---
-    tab1, tab2, tab3 = st.tabs(["📋 所有訂單管理", "🔍 庫存佔用表", "📊 客群分析"])
+    tab1, tab2, tab3 = st.tabs(["✏️ 訂單管理與編輯", "🔍 庫存佔用表", "📊 客群分析"])
 
     with tab1:
-        st.info("💡 這裡可以看到所有訂單，下方可以刪除舊資料。")
+        st.info("💡 操作教學：直接點擊下方表格的內容進行修改，改完後請務必按下「💾 儲存修改」按鈕！")
         
-        # 1. 顯示表格
-        st.dataframe(
-            df.sort_values(by="開始日期", ascending=False),
-            use_container_width=True
+        # 🔥🔥🔥 重點功能：可編輯的表格 (Data Editor) 🔥🔥🔥
+        edited_df = st.data_editor(
+            df.sort_values(by="開始日期", ascending=False), # 讓最新的在上面
+            use_container_width=True,
+            num_rows="dynamic", # 允許在表格最下方直接新增空行
+            column_config={
+                "狀態": st.column_config.SelectboxColumn(
+                    "狀態",
+                    options=["預約確認", "已取機(租借中)", "已歸還(結案)", "取消"],
+                    required=True
+                ),
+                "手機編號": st.column_config.SelectboxColumn(
+                    "手機型號",
+                    options=PHONE_INVENTORY,
+                    required=True
+                ),
+                "租金": st.column_config.NumberColumn(format="$%d"),
+                "押金": st.column_config.NumberColumn(format="$%d"),
+                "開始日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                "結束日期": st.column_config.DateColumn(format="YYYY-MM-DD"),
+            }
         )
 
+        # 儲存按鈕
+        col_save, col_info = st.columns([1, 4])
+        with col_save:
+            if st.button("💾 儲存修改", type="primary"):
+                # 將修改後的資料寫回 CSV
+                edited_df.to_csv(DATA_FILE, index=False)
+                st.success("✅ 資料已更新！")
+                st.rerun()
+        
         st.divider()
         
-        # 2. 🔥 新增：刪除功能區 🔥
-        with st.expander("🗑️ 刪除訂單 (點擊展開)", expanded=False):
-            st.warning("注意：刪除後資料無法復原！")
-            
-            # 製作選單：顯示 "索引: 姓名 - 手機 - 日期" 讓老闆好選
-            # 使用反向順序，讓最新的訂單在最上面
+        # 還是保留刪除功能，以備不時之需
+        with st.expander("🗑️ 刪除訂單 (進階選項)", expanded=False):
+            st.warning("注意：建議直接在上方表格將狀態改為「取消」即可。若堅持刪除，請由下方操作。")
             delete_options = [f"{i}: {row['姓名']} - {row['手機編號']} ({row['開始日期']})" for i, row in df.iterrows()]
-            
             if delete_options:
-                selected_to_delete = st.selectbox("選擇要刪除的訂單：", delete_options)
-                
-                if st.button("確認刪除此訂單 ❌"):
-                    # 抓出開頭的 index 數字
+                selected_to_delete = st.selectbox("選擇要永久刪除的訂單：", delete_options)
+                if st.button("確認刪除 ❌"):
                     index_to_drop = int(selected_to_delete.split(":")[0])
-                    
-                    # 刪除該行
-                    df = df.drop(index_to_drop)
-                    
-                    # 存回檔案
-                    df.to_csv(DATA_FILE, index=False)
-                    
-                    st.success("✅ 訂單已刪除！")
-                    st.rerun() # 立即重新整理畫面
-            else:
-                st.write("目前沒有訂單可刪除。")
+                    df.drop(index_to_drop).to_csv(DATA_FILE, index=False)
+                    st.success("訂單已刪除！")
+                    st.rerun()
 
     with tab2:
         st.subheader("手機預約狀況")
